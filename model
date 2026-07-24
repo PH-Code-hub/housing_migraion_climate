@@ -1,0 +1,1147 @@
+# =========================================================
+# 24 July 2026 by Peyman
+# =========================================================
+
+# ---- Reset environment ----
+rm(list = ls())
+gc()
+graphics.off()
+
+# =========================================================
+# 0) Install & load packages
+# =========================================================
+pkgs <- c(
+  "tidyverse","fixest","readxl","modelsummary","flextable","officer",
+  "car","reshape2","dplyr"
+)
+to_install <- pkgs[!sapply(pkgs, requireNamespace, quietly = TRUE)]
+if (length(to_install)) install.packages(to_install, dependencies = TRUE)
+
+library(tidyverse)
+library(fixest)
+library(readxl)
+library(modelsummary)
+library(flextable)
+library(officer)
+library(car)
+library(reshape2)
+library(dplyr)
+
+# =========================================================
+# 1) Load data
+# =========================================================
+path_5y <- "/Users/.../final_flow.csv"
+df <- read.csv(path_5y)
+
+# =========================================================
+# 2) Helpers
+# =========================================================
+safe_log   <- function(x) ifelse(is.finite(x) & !is.na(x) & x > 0, log(x), NA_real_)
+safe_log1p <- function(x) ifelse(is.finite(x) & !is.na(x) & x >= 0, log1p(x), NA_real_)
+
+label_map <- function(vars) {
+  labs <- setNames(gsub("_", " ", vars), vars)
+  nice <- c(
+    # ---- Migration flows ----
+    flow              = "Migration flow",
+    annual_flow       = "Annual migration flow",
+    annual_flow_rate  = "Annual migration flow rate",
+    flow_1yrflows     = "1-year migration flow",
+    
+    # ---- Migrant composition (scores) ----
+    med_edu_1yr_score = "Migrants’ median education (log1p)",
+    med_edu_5yr_score = "Migrants’ median education (log1p)",
+    med_emp_1yr_score = "Migrants’ median employment (log1p)",
+    med_emp_5yr_score = "Migrants’ median employment (log1p)",
+    med_inc_1yr_score = "Migrants’ median income (log1p)",
+    med_inc_5yr_score = "Migrants’ median income (log1p)",
+    
+    # ---- Core socio-economic (origin) ----
+    income     = "Income (origin, log)",
+    unemp      = "Unemployment rate (origin, log)",
+    lfpr       = "Labour force participation (origin, log)",
+    pop        = "Population (origin, log)",
+    biz_total  = "Business count (origin, log)",
+    rent       = "Rent (origin, log)",
+    mort       = "Mortgage (origin, log)",
+    GRP        = "Gross Regional Product (origin, log)",
+    
+    income_5_yr     = "Income (origin, log, 5-year lag)",
+    unemp_5_yr      = "Unemployment rate (origin, log, 5-year lag)",
+    lfpr_5_yr       = "LFPR (origin, log, 5-year lag)",
+    pop_5_yr        = "Population (origin, 5-year lag)",
+    rent_5_yr       = "Rent (origin, log, 5-year lag)",
+    mort_5_yr       = "Mortgage (origin, log, 5-year lag)",
+    biz_total_5_yr  = "Business count (origin, log, 5-year lag)",
+    
+    # ---- Risk & disaster (origin) ----
+    total_risk   = "Total climate risk (origin)",
+    total_risk_q = "Total climate risk quantile (origin)",
+    dis_1_yr     = "1-year disaster freq (origin, log1p)",
+    dis_5_yr     = "5-year disaster freq (origin, log1p)",
+    dis_10_yr    = "10-year disaster freq (origin, log1p)",
+    
+    # ---- Affordability (origin) ----
+    raff      = "Rental affordability (origin, log)",
+    raff_5_yr = "Rental affordability (origin, log, 5-year lag)",
+    oaff      = "Ownership affordability (origin, log)",
+    oaff_5_yr = "Ownership affordability (origin, log, 5-year lag)",
+    
+    # ---- Neighbours (origin) ----
+    nei_GRP        = "GRP in neighbours (origin, log)",
+    nei_income     = "Income in neighbours (origin, log)",
+    nei_unemp      = "Unemployment in neighbours (origin, log)",
+    nei_lfpr       = "LFPR in neighbours (origin, log)",
+    nei_biz_total  = "Business count in neighbours (origin, log)",
+    nei_rent       = "Rent in neighbours (origin, log)",
+    nei_mort       = "Mortgage in neighbours (origin, log)",
+    nei_raff       = "Rental affordability in neighbours (origin, log)",
+    nei_oaff       = "Ownership affordability in neighbours (origin, log)",
+    
+    nei_income_5_yr     = "Income in neighbours (origin, log, 5-year lag)",
+    nei_unemp_5_yr      = "Unemployment in neighbours (origin, log, 5-year lag)",
+    nei_lfpr_5_yr       = "LFPR in neighbours (origin, log, 5-year lag)",
+    nei_biz_total_5_yr  = "Business count in neighbours (origin, log, 5-year lag)",
+    nei_rent_5_yr       = "Rent in neighbours (origin, log, 5-year lag)",
+    nei_mort_5_yr       = "Mortgage in neighbours (origin, log, 5-year lag)",
+    nei_raff_5_yr       = "Rental affordability in neighbours (origin, log, 5-year lag)",
+    nei_oaff_5_yr       = "Ownership affordability in neighbours (origin, log, 5-year lag)",
+    
+    nei_total_risk   = "Total climate risk in neighbours (origin)",
+    nei_total_risk_q = "Total climate risk in neighbours quantile (origin)",
+    nei_dis_1_yr     = "1-year disaster freq in neighbours (origin, log1p)",
+    nei_dis_5_yr     = "5-year disaster freq in neighbours (origin, log1p)",
+    nei_dis_10_yr    = "10-year disaster freq in neighbours (origin, log1p)",
+    
+    # ---- Destination equivalents ----
+    income_des     = "Income (dest, log)",
+    unemp_des      = "Unemployment rate (dest, log)",
+    lfpr_des       = "LFPR (dest, log)",
+    pop_des        = "Population (dest, log)",
+    biz_total_des  = "Business count (dest, log)",
+    rent_des       = "Rent (dest, log)",
+    mort_des       = "Mortgage (dest, log)",
+    GRP_des        = "Gross Regional Product (dest, log)",
+    
+    income_5_yr_des     = "Income (dest, log, 5-year lag)",
+    unemp_5_yr_des      = "Unemployment rate (dest, log, 5-year lag)",
+    lfpr_5_yr_des       = "LFPR (dest, log, 5-year lag)",
+    pop_5_yr_des        = "Population (dest, 5-year lag)",
+    rent_5_yr_des       = "Rent (dest, log, 5-year lag)",
+    mort_5_yr_des       = "Mortgage (dest, log, 5-year lag)",
+    biz_total_5_yr_des  = "Business count (dest, log, 5-year lag)",
+    
+    total_risk_des   = "Total climate risk (dest)",
+    total_risk_des_q = "Total climate risk quantile (dest)",
+    dis_1_yr_des     = "1-year disaster freq (dest, log1p)",
+    dis_5_yr_des     = "5-year disaster freq (dest, log1p)",
+    dis_10_yr_des    = "10-year disaster freq (dest, log1p)",
+    
+    raff_des      = "Rental affordability (dest, log)",
+    raff_5_yr_des = "Rental affordability (dest, log, 5-year lag)",
+    oaff_des      = "Ownership affordability (dest, log)",
+    oaff_5_yr_des = "Ownership affordability (dest, log, 5-year lag)",
+    
+    nei_GRP_des        = "GRP in neighbours (dest, log)",
+    nei_income_des     = "Income in neighbours (dest, log)",
+    nei_unemp_des      = "Unemployment in neighbours (dest, log)",
+    nei_lfpr_des       = "LFPR in neighbours (dest, log)",
+    nei_biz_total_des  = "Business count in neighbours (dest, log)",
+    nei_rent_des       = "Rent in neighbours (dest, log)",
+    nei_mort_des       = "Mortgage in neighbours (dest, log)",
+    nei_raff_des       = "Rental affordability in neighbours (dest, log)",
+    nei_oaff_des       = "Ownership affordability in neighbours (dest, log)",
+    
+    nei_income_5_yr_des     = "Income in neighbours (dest, log, 5-year lag)",
+    nei_unemp_5_yr_des      = "Unemployment in neighbours (dest, log, 5-year lag)",
+    nei_lfpr_5_yr_des       = "LFPR in neighbours (dest, log, 5-year lag)",
+    nei_biz_total_5_yr_des  = "Business count in neighbours (dest, log, 5-year lag)",
+    nei_rent_5_yr_des       = "Rent in neighbours (dest, log, 5-year lag)",
+    nei_mort_5_yr_des       = "Mortgage in neighbours (dest, log, 5-year lag)",
+    nei_raff_5_yr_des       = "Rental affordability in neighbours (dest, log, 5-year lag)",
+    nei_oaff_5_yr_des       = "Ownership affordability in neighbours (dest, log, 5-year lag)",
+    
+    nei_total_risk_des   = "Total climate risk in neighbours (dest)",
+    nei_total_risk_des_q = "Total climate risk in neighbours quantile (dest)",
+    nei_dis_1_yr_des     = "1-year disaster freq in neighbours (dest, log1p)",
+    nei_dis_5_yr_des     = "5-year disaster freq in neighbours (dest, log1p)",
+    nei_dis_10_yr_des    = "10-year disaster freq in neighbours (dest, log1p)",
+    
+    # ---- Multilateral resistance (differences) ----
+    d_med_edu_5yr  = "Gap in migrants’ median education (dest - origin)",
+    d_med_emp_5yr  = "Gap in migrants’ median employment (dest - origin)",
+    d_med_inc_5yr  = "Gap in migrants’ median income (dest - origin)",
+    d_dis_1yr      = "Gap in disaster frequency, 1-year (dest - origin)",
+    d_unemp        = "Gap in unemployment rate (dest - origin)",
+    d_raff         = "Gap in rental affordability (dest - origin)",
+    d_biz_total    = "Gap in business count (dest - origin)",
+    d_grp          = "Gap in GRP (dest - origin)",
+    
+    # ---- Dyad features ----
+    distance    = "Distance (log)",
+    contiguity  = "Contiguity",
+    interstate  = "Interstate",
+    bass_strait = "Bass Strait",
+    risk_dif    = "Risk difference (dest - origin)",
+    risk_dif_q  = "Risk difference quantile (dest - origin)",
+    
+    # ---- Affordability interactions (5-year lags) ----
+    raff5Xminc         = "Rental affordability (origin, 5y) × Migrants’ income",
+    raff5Xminc_des     = "Rental affordability (dest, 5y) × Migrants’ income",
+    raff5Xinc          = "Rental affordability (origin, 5y) × Income (origin)",
+    raff5Xinc_des      = "Rental affordability (dest, 5y) × Income (dest)",
+    raff5Xrisk         = "Rental affordability (origin, 5y) × Risk (origin)",
+    raff5Xrisk_des     = "Rental affordability (dest, 5y) × Risk (dest)",
+    raff5Xrisk_dif     = "Rental affordability (origin, 5y) × Risk difference",
+    raff5Xrisk_dif_des = "Rental affordability (dest, 5y) × Risk difference",
+    raff5Xmedu         = "Rental affordability (origin, 5y) × Migrants’ education",
+    raff5Xmedu_des     = "Rental affordability (dest, 5y) × Migrants’ education",
+    raff5Xmemp         = "Rental affordability (origin, 5y) × Migrants’ employment",
+    raff5Xmemp_des     = "Rental affordability (dest, 5y) × Migrants’ employment",
+    raff5Xbiz          = "Rental affordability (origin, 5y) × Business (origin)",
+    raff5Xbiz_des      = "Rental affordability (dest, 5y) × Business (dest)",
+    raff5Xuemp         = "Rental affordability (origin, 5y) × Unemployment (origin)",
+    raff5Xuemp_des     = "Rental affordability (dest, 5y) × Unemployment (dest)",
+    raff5Xdistance     = "Rental affordability (origin, 5y) × Distance",
+    raff5Xdistance_des = "Rental affordability (dest, 5y) × Distance",
+    raff5Xinstate      = "Rental affordability (origin, 5y) × Interstate",
+    raff5Xinstate_des  = "Rental affordability (dest, 5y) × Interstate"
+  )
+  labs[names(nice)] <- nice
+  labs
+}
+
+mk_form <- function(y, rhs_vars, fe = c("origin","destination","time")) {
+  stopifnot(length(rhs_vars) >= 1)
+  rhs <- paste(rhs_vars, collapse = " + ")
+  fe_spec <- paste(intersect(fe, c("origin","destination","time")), collapse = " + ")
+  as.formula(sprintf("%s ~ %s | %s", y, rhs, fe_spec))
+}
+
+fit_models <- function(data, y, rhs_vars,
+                       fe = c("origin","destination","time"),
+                       split_col = "risk_dif_q",
+                       family = c("ppml","ols")) {
+  family <- match.arg(family)
+  form   <- mk_form(y, rhs_vars, fe)
+  fitfun <- if (family == "ppml") fixest::fepois else fixest::feols
+  
+  # handle split
+  if (is.null(split_col)) {
+    panels <- list("(0)" = data)
+  } else {
+    if (!(split_col %in% names(data))) {
+      stop(sprintf("split_col '%s' not found in data", split_col))
+    }
+    x_chr <- trimws(as.character(data[[split_col]]))
+    is_reduction <- !is.na(x_chr) & x_chr %in% c("Neg High","Neg Low")
+    is_increase  <- !is.na(x_chr) & x_chr %in% c("Pos Low","Pos High")
+    panels <- list(
+      "(0)\nAll flows"   = data,
+      "(1)\nrisk reduction" = data[is_reduction, , drop = FALSE],
+      "(2)\nrisk increase"  = data[is_increase,  , drop = FALSE]
+    )
+  }
+  
+  fits <- lapply(panels, function(dsub) {
+    if (is.null(dsub) || nrow(dsub) == 0) return(NULL)
+    tryCatch(fitfun(form, data = dsub),
+             error = function(e) { message("Model failed: ", conditionMessage(e)); NULL })
+  })
+  Filter(Negate(is.null), fits)
+}
+
+fit_models_des <- function(data, y, rhs_vars, fe = c("origin","destination","time"),
+                           split_col_1 = "total_risk_q",split_col_2 = "total_risk_des_q", family = c("ppml","ols")) {
+  
+  family <- match.arg(family)
+  form   <- mk_form(y, rhs_vars, fe)
+  fitfun <- if (family == "ppml") fixest::fepois else fixest::feols
+  
+  x <- as.character(data[[split_col_1]])
+  y <- as.character(data[[split_col_2]])
+  # Map panels: (0) duplicates (1) by request
+  panels <- list(
+    "(0)\nAll flows" = data,
+    "(1)\nHigh-risk Origin" = data[!is.na(x) & x == 5, , drop = FALSE],
+    "(2)\nLow-risk Origin" = data[!is.na(x) & x == 1, , drop = FALSE],
+    "(3)\nLow-risk Destination" = data[!is.na(x) & y == 1, , drop = FALSE],
+    "(4)\nHigh-risk Destination" = data[!is.na(x) & y == 5, , drop = FALSE]
+  )
+  
+  out <- lapply(panels, function(dsub) {
+    if (nrow(dsub) > 0) fitfun(form, data = dsub) else NULL
+  })
+  
+  # drop NULLs but keep order/names for the ones that exist
+  out <- Filter(Negate(is.null), out)
+  out
+}
+
+
+# =========================================================
+# 3) table builder + Word exporter
+# =========================================================
+export_ppml_tables <- function(tables, titles = NULL, path = "PPML_results_table.docx") {
+  stopifnot(length(tables) >= 1)
+  if (is.null(titles)) titles <- paste0("Table ", seq_along(tables))
+  stopifnot(length(titles) == length(tables))
+  named_list <- setNames(tables, titles)
+  args <- c(named_list, list(path = path))
+  do.call(flextable::save_as_docx, args)
+  message("Saved Word file: ", normalizePath(path))
+  invisible(path)
+}
+
+ppml_flextable <- function(models,
+                           coef_keep,
+                           coef_labels = NULL,
+                           cluster_formula = ~ orig_dest_dyad,
+                           header_title = "Model results",
+                           header_labels = NULL) {
+  
+  stopifnot(length(models) >= 1)
+  if (is.null(names(models))) names(models) <- paste0("Model ", seq_along(models))
+  
+  coef_map <- setNames(coef_keep, coef_keep)
+  if (!is.null(coef_labels)) {
+    ov <- intersect(names(coef_labels), coef_keep)
+    coef_map[ov] <- coef_labels[ov]
+  }
+  
+  ft <- modelsummary::modelsummary(
+    models,
+    output        = "flextable",
+    vcov          = cluster_formula,
+    estimate      = "{estimate}{stars} ({std.error})",
+    statistic     = NULL,
+    coef_keep     = coef_keep,
+    coef_map      = coef_map,
+    gof_omit      = ".*",
+    stars         = c("*"=.10, "**"=.05, "***"=.01),
+    fmt           = 3
+  )
+  
+  keys <- ft$col_keys
+  term_col   <- keys[1]
+  model_cols <- setdiff(keys, term_col)
+  
+  if (!is.null(header_labels)) {
+    map <- header_labels[names(header_labels) %in% model_cols]
+    if (length(map)) {
+      ft <- flextable::set_header_labels(ft, .list = as.list(map))
+    }
+  }
+  
+  # ---------- FE block ----------
+  fe_labels <- c("Time FE","Origin FE","Destination FE")
+  fe_vars   <- c("time","origin","destination")
+  fe_mat <- as.data.frame(matrix("", nrow = length(fe_vars), ncol = length(keys)), stringsAsFactors = FALSE)
+  names(fe_mat) <- keys
+  fe_mat[[term_col]] <- fe_labels
+  
+  has_fe <- function(m, fe) {
+    fe_list <- tryCatch(names(fixest::fixef(m)), error = function(e) character(0))
+    fe %in% fe_list
+  }
+  for (mc in names(models)) {
+    if (!(mc %in% model_cols)) next
+    m <- models[[mc]]
+    fe_mat[[mc]] <- vapply(fe_vars, function(fe) if (has_fe(m, fe)) "x" else "", character(1))
+  }
+  for (i in seq_len(nrow(fe_mat))) {
+    ft <- flextable::add_body_row(ft, values = as.list(fe_mat[i, ]), top = FALSE)
+  }
+  
+  # ---------- GOF block ----------
+  fmt_num <- function(x, digits = 3) ifelse(is.na(x), "", formatC(x, format="f", digits=digits))
+  gof_names <- c("S.E.: Clustered","Observations","Squared Cor.","Pseudo R2","BIC")
+  gof_mat <- as.data.frame(matrix("", nrow = length(gof_names), ncol = length(keys)), stringsAsFactors = FALSE)
+  names(gof_mat) <- keys
+  gof_mat[[term_col]] <- gof_names
+  
+  for (mc in names(models)) {
+    if (!(mc %in% model_cols)) next
+    m <- models[[mc]]
+    gof_mat[gof_mat[[term_col]]=="S.E.: Clustered", mc] <- "orig_dest_dyad"
+    n    <- tryCatch(stats::nobs(m), error = function(e) NA_real_)
+    sqcor<- tryCatch(as.numeric(fixest::fitstat(m, "sq.cor")), error = function(e) NA_real_)
+    pr2  <- tryCatch(as.numeric(fixest::fitstat(m, "pr2")),    error = function(e) NA_real_)
+    bic  <- tryCatch(as.numeric(fixest::fitstat(m, "bic")),    error = function(e) NA_real_)
+    if (is.na(bic)) bic <- tryCatch(as.numeric(stats::BIC(m)), error = function(e) NA_real_)
+    
+    gof_mat[gof_mat[[term_col]]=="Observations", mc] <- ifelse(is.na(n), "", format(n, big.mark=","))
+    gof_mat[gof_mat[[term_col]]=="Squared Cor.", mc] <- fmt_num(sqcor, 3)
+    gof_mat[gof_mat[[term_col]]=="Pseudo R2",   mc] <- fmt_num(pr2,   3)
+    gof_mat[gof_mat[[term_col]]=="BIC",         mc] <- fmt_num(bic,   1)
+  }
+  for (i in seq_len(nrow(gof_mat))) {
+    ft <- flextable::add_body_row(ft, values = as.list(gof_mat[i, ]), top = FALSE)
+  }
+  
+  # ---------- Add Header 1 (title) ----------
+  k <- length(keys)
+  ft <- flextable::add_header_row(ft, values = header_title, colwidths = k)
+  
+  # ---------- Format ----------
+  ft <- flextable::autofit(ft)
+  ncols <- length(keys)
+  ft <- flextable::width(ft, j = 1, width = 2)
+  if (ncols >= 2) ft <- flextable::width(ft, j = 2:ncols, width = 0.8)
+  ft <- flextable::font(ft, fontname = "Times New Roman", part = "all")
+  ft <- flextable::fontsize(ft, part = "all", size = 9)
+  ft <- flextable::bold(ft, part = "header", bold = TRUE)
+  ft <- flextable::align(ft, i = 1, align = "center", part = "header")
+  ft <- flextable::align(ft, j = 1, align = "left",  part = "body")
+  if (ncols >= 2) ft <- flextable::align(ft, j = 2:ncols, align = "center", part = "body")
+  ft <- flextable::height_all(ft, height = 0.45)
+  ft <- flextable::padding(ft, padding.top = 1, padding.bottom = 1)
+  
+  ft <- flextable::border_remove(ft)
+  b  <- officer::fp_border(color = "black", width = 1)
+  ft <- flextable::hline_top(ft, part = "header", border = b)
+  ft <- flextable::hline(ft, i = 1, part = "header", border = b)
+  ft <- flextable::hline_bottom(ft, part = "header", border = b)
+  
+  i_time <- which(ft$body$dataset[[term_col]] == "Time FE")
+  i_obs  <- which(ft$body$dataset[[term_col]] == "Observations")
+  if (length(i_time) && i_time > 1) ft <- flextable::hline(ft, i = i_time - 1, part = "body", border = b)
+  if (length(i_obs)  && i_obs  > 1) ft <- flextable::hline(ft, i = i_obs  - 1, part = "body", border = b)
+  ft <- flextable::hline_bottom(ft, part = "body", border = b)
+  
+  ft
+}
+
+# =========================================================
+# 3) Defensive prep (safe logs, factors, risk_dif)
+# =========================================================
+prep_df <- function(d) {
+  need_cols <- c("origin","destination","orig_dest_dyad")
+  miss <- setdiff(need_cols, names(d))
+  if (length(miss)) stop("Missing required column(s): ", paste(miss, collapse = ", "))
+  
+  for (nm in c("origin","destination","orig_dest_dyad","time")) if (nm %in% names(d)) d[[nm]] <- factor(d[[nm]])
+  for (nm in c("contiguity","interstate","bass_strait")) if (!nm %in% names(d)) d[[nm]] <- 0
+  
+  # Guard distance for log()
+  if ("distance" %in% names(d)) d$distance <- pmax(d$distance, 1e-6)
+  
+  # Create risk_dif_q if missing (signed quartiles)
+  if (!"risk_dif_q" %in% names(d) && "risk_dif" %in% names(d)) {
+    qs <- quantile(d$risk_dif, probs = seq(0, 1, 0.25), na.rm = TRUE)
+    qcut <- cut(d$risk_dif, breaks = qs, include.lowest = TRUE,
+                labels = c("Neg High","Neg Low","Pos Low","Pos High"))
+    d$risk_dif_q <- qcut
+  }
+  
+  # Log-transformed variables
+  log_vars <- c(
+    # origin & dest core
+    "biz_total","biz_total_des",
+    "income","income_des",
+    "unemp","unemp_des",
+    "lfpr","lfpr_des",
+    "rent","rent_des",
+    "mort","mort_des",
+    "price_ave", "price_ave_des",
+    "price_ave_5_yr", "price_ave_5_yr_des",
+    "price", "price_des",
+    "raff","raff_des",
+    "oaff","oaff_des",
+    "GRP","GRP_des",
+    "pop","pop_des",
+    "distance",
+    # 5-year lags
+    "biz_total_5_yr","biz_total_5_yr_des",
+    "income_5_yr","income_5_yr_des",
+    "unemp_5_yr","unemp_5_yr_des",
+    "lfpr_5_yr","lfpr_5_yr_des",
+    "rent_5_yr","rent_5_yr_des",
+    "mort_5_yr","mort_5_yr_des",
+    "raff_5_yr","raff_5_yr_des",
+    "oaff_5_yr","oaff_5_yr_des",
+    "pop_5_yr","pop_5_yr_des",
+    # neighbours (origin)
+    "nei_GRP","nei_income","nei_unemp","nei_lfpr",
+    "nei_biz_total","nei_rent","nei_mort",
+    "nei_raff","nei_oaff",
+    "nei_income_5_yr","nei_unemp_5_yr","nei_lfpr_5_yr",
+    "nei_biz_total_5_yr","nei_rent_5_yr","nei_mort_5_yr",
+    "nei_raff_5_yr","nei_oaff_5_yr",
+    # neighbours (dest)
+    "nei_GRP_des","nei_income_des","nei_unemp_des","nei_lfpr_des",
+    "nei_biz_total_des","nei_rent_des","nei_mort_des",
+    "nei_raff_des","nei_oaff_des",
+    "nei_income_5_yr_des","nei_unemp_5_yr_des","nei_lfpr_5_yr_des",
+    "nei_biz_total_5_yr_des","nei_rent_5_yr_des","nei_mort_5_yr_des",
+    "nei_raff_5_yr_des","nei_oaff_5_yr_des"
+  )
+  
+  # Log1p for counts/frequencies & migrant medians
+  log1p_vars <- c(
+    # disasters (origin & dest)
+    "dis_1_yr","dis_5_yr","dis_10_yr",
+    "dis_1_yr_des","dis_5_yr_des","dis_10_yr_des",
+    # disasters in neighbours
+    "nei_dis_1_yr","nei_dis_5_yr","nei_dis_10_yr",
+    "nei_dis_1_yr_des","nei_dis_5_yr_des","nei_dis_10_yr_des",
+    # migrants' median composition (log1p)
+    "med_edu_1yr_score","med_edu_5yr_score",
+    "med_emp_1yr_score","med_emp_5yr_score",
+    "med_inc_1yr_score","med_inc_5yr_score"
+  )
+  
+  for (nm in intersect(log_vars, names(d)))   d[[nm]] <- safe_log(d[[nm]])
+  for (nm in intersect(log1p_vars, names(d))) d[[nm]] <- safe_log1p(d[[nm]])
+  d
+}
+
+df <- prep_df(df)
+
+# =========================================================
+# Correlation matrix (diagnostics)
+# =========================================================
+rhs_vars <- c("annual_flow","med_edu_5yr_score","med_inc_5yr_score","med_emp_5yr_score",
+              "dis_5_yr","dis_5_yr_des",
+              "rent_5_yr","rent_5_yr_des",
+              "mort_5_yr","mort_5_yr_des",
+              "unemp_5_yr","unemp_5_yr_des",
+              "income_5_yr","income_5_yr_des",
+              "pop_5_yr","pop_5_yr_des",
+              "distance","contiguity","interstate","bass_strait")
+df_rhs <- df[, intersect(rhs_vars, names(df)), drop = FALSE]
+if (ncol(df_rhs) >= 2) {
+  cor_matrix <- cor(df_rhs, use = "pairwise.complete.obs")
+  cor_long <- melt(cor_matrix)
+  cor_long <- cor_long[cor_long$Var1 != cor_long$Var2, ]
+  top_corr <- cor_long[order(-abs(cor_long$value)), ]
+  print(head(top_corr, 50))
+}
+
+# =========================================================
+# Variance Inflation Factor (diagnostics)
+# =========================================================
+df_vif <- df[, intersect(c("flow", rhs_vars), names(df)), drop = FALSE]
+if ("flow" %in% names(df_vif)) {
+  df_vif$flow <- as.numeric(df_vif$flow)
+  lm_check <- tryCatch(lm(flow ~ ., data = df_vif), error = function(e) NULL)
+  if (!is.null(lm_check)) {
+    vif_vals <- car::vif(lm_check)
+    vif_df <- data.frame(
+      variable = names(vif_vals),
+      VIF = as.numeric(vif_vals)
+    ) %>%
+      arrange(desc(VIF)) %>%
+      mutate(flag_high = ifelse(VIF > 10, "⚠️ > 10", ""))
+    print(vif_df)
+  }
+}
+
+# =========================================================
+# 4) Blocks
+# =========================================================
+mk_header_labels <- function(models) {
+  model_names <- names(models)
+  if (is.null(model_names)) model_names <- paste0("Model ", seq_along(models))
+  pretty_map <- c(
+    "(0)" = "(0) All flows",
+    "(1)" = "(1) Risk reduction",
+    "(2)" = "(2) Risk increase"
+  )
+  header_labels <- ifelse(model_names %in% names(pretty_map),
+                          pretty_map[model_names],
+                          model_names)
+  setNames(header_labels, model_names)
+}
+
+
+# ---------- Baseline (5y, PPML) ----------
+y <- "annual_flow"
+
+rhs_base <- c(
+  "price_ave","price_ave_des",
+  "med_edu_5yr_score","med_inc_5yr_score","med_emp_5yr_score",
+  "pop","pop_des",
+  "distance","contiguity","interstate","bass_strait"
+)
+rhs_b <- intersect(rhs_base, names(df))
+
+
+rhs_b
+
+
+COMMON_CONTROLS <- intersect(c(
+  "med_edu_5yr_score","med_inc_5yr_score","med_emp_5yr_score",
+  "pop","pop_des","distance","contiguity","interstate","bass_strait"
+), names(df))
+
+
+models0 <- fit_models(df, y, rhs_b, fe = c("origin","destination","time"), family = "ppml")
+
+tab0a <- ppml_flextable(
+  models0,
+  coef_keep    = rhs_b,
+  coef_labels  = label_map(rhs_b),
+  header_title = "Baseline Model — Annual Out-Migration Flow",
+  header_labels = mk_header_labels(models0)
+)
+
+
+# ---------- Different measurment for outcome (y = moving to high/low-risk areas at org/des)  ----------
+models0 <- fit_models_des(df, y, rhs_b, fe = c("origin","destination","time"), family = "ppml")
+
+tab0b <- ppml_flextable(
+  models0,
+  coef_keep    = rhs_b,
+  coef_labels  = label_map(rhs_b),
+  header_title = "Baseline Model — Annual Out-Migration Flow",
+  header_labels = mk_header_labels(models0)
+)
+
+
+# ---------- Urban Origin ----------
+df_tem <- df[df$mig_type %in% c("UU", "UR"), ]
+rhs_b <- intersect(rhs_base, names(df_tem))
+models0 <- fit_models_des(df_tem, y, rhs_b, fe = c("origin","destination","time"), family = "ppml")
+tab0Uorg <- ppml_flextable(models0,
+                         coef_keep   = rhs_b,
+                         coef_labels = label_map(rhs_b),
+                         header_title  = "Baseline Model — Annual Out-Migration Flow",
+                         header_labels = mk_header_labels(models0))
+# ---------- Urban Des ----------
+df_tem <- df[df$mig_type %in% c("UU", "RU"), ]
+rhs_b <- intersect(rhs_base, names(df_tem))
+models0 <- fit_models_des(df_tem, y, rhs_b, fe = c("origin","destination","time"), family = "ppml")
+tab0Udes <- ppml_flextable(models0,
+                           coef_keep   = rhs_b,
+                           coef_labels = label_map(rhs_b),
+                           header_title  = "Baseline Model — Annual Out-Migration Flow",
+                           header_labels = mk_header_labels(models0))
+# ----------Rural Org ----------
+df_tem <- df[df$mig_type %in% c("RU", "RR"), ]
+rhs_b <- intersect(rhs_base, names(df_tem))
+models0 <- fit_models_des(df_tem, y, rhs_b, fe = c("origin","destination","time"), family = "ppml")
+tab0Rorg <- ppml_flextable(models0,
+                           coef_keep   = rhs_b,
+                           coef_labels = label_map(rhs_b),
+                           header_title  = "Baseline Model — Annual Out-Migration Flow",
+                           header_labels = mk_header_labels(models0))
+# ----------Rural des ----------
+df_tem <- df[df$mig_type %in% c("UR", "RR"), ]
+rhs_b <- intersect(rhs_base, names(df_tem))
+models0 <- fit_models_des(df_tem, y, rhs_b, fe = c("origin","destination","time"), family = "ppml")
+tab0Rdes <- ppml_flextable(models0,
+                           coef_keep   = rhs_b,
+                           coef_labels = label_map(rhs_b),
+                           header_title  = "Baseline Model — Annual Out-Migration Flow",
+                           header_labels = mk_header_labels(models0))
+
+# ---------- Within a state  ----------
+df_tem <- df[df$interstate == 1, ]
+rhs_b <- intersect(rhs_base, names(df_tem))
+models0 <- fit_models_des(df_tem, y, rhs_b, fe = c("origin","destination","time"), family = "ppml")
+tab0IN <- ppml_flextable(models0,
+                         coef_keep   = rhs_b,
+                         coef_labels = label_map(rhs_b),
+                         header_title  = "Baseline Model — Annual Out-Migration Flow",
+                         header_labels = mk_header_labels(models0))
+
+# ---------- Across States  ----------
+df_tem <- df[df$interstate == 0, ]
+rhs_b <- intersect(rhs_base, names(df_tem))
+models0 <- fit_models_des(df_tem, y, rhs_b, fe = c("origin","destination","time"), family = "ppml")
+tab0AS <- ppml_flextable(models0,
+                         coef_keep   = rhs_b,
+                         coef_labels = label_map(rhs_b),
+                         header_title  = "Baseline Model — Annual Out-Migration Flow",
+                         header_labels = mk_header_labels(models0))
+
+
+
+
+# --- Quantile cut-points (change probs if needed) ---
+probs <- c(0.33, 0.66)
+q_pop <- quantile(df$pop, probs = probs, na.rm = TRUE)
+
+# ---------------- High population ----------------
+df_tem_high <- subset(df, !is.na(pop) & pop >  q_pop[2])
+rhs_b_high  <- intersect(rhs_base, names(df_tem_high))
+
+models_high <- fit_models_des(
+  df_tem_high, y, rhs_b_high,
+  fe = c("origin", "destination", "time"),
+  family = "ppml"
+)
+
+tab0PH <- ppml_flextable(
+  models_high,
+  coef_keep    = rhs_b_high,
+  coef_labels  = label_map(rhs_b_high),
+  header_title = "Baseline Model — Annual Out-Migration Flow (High population)",
+  header_labels = mk_header_labels(models_high)
+)
+
+# ---------------- Low population ---------------
+df_tem_low  <- subset(df, !is.na(pop) & pop <= q_pop[1])
+rhs_b_low  <- intersect(rhs_base, names(df_tem_low))
+
+models_low <- fit_models_des(
+  df_tem_low, y, rhs_b_low,
+  fe = c("origin", "destination", "time"),
+  family = "ppml"
+)
+
+tab0PL <- ppml_flextable(
+  models_low,
+  coef_keep    = rhs_b_low,
+  coef_labels  = label_map(rhs_b_low),
+  header_title = "Baseline Model — Annual Out-Migration Flow (Low population)",
+  header_labels = mk_header_labels(models_low)
+)
+
+
+# --- Quantile cut-points (change probs if needed) ---
+probs <- c(0.33, 0.66)
+q_pop <- quantile(df$pop_des, probs = probs, na.rm = TRUE)
+
+
+# ---------------- High population (top 20%) ----------------
+df_tem_high <- subset(df, !is.na(pop_des) & pop_des >  q_pop[2])
+rhs_b_high  <- intersect(rhs_base, names(df_tem_high))
+
+models_high <- fit_models_des(
+  df_tem_high, y, rhs_b_high,
+  fe = c("origin", "destination", "time"),
+  family = "ppml"
+)
+
+tab0PH_des <- ppml_flextable(
+  models_high,
+  coef_keep    = rhs_b_high,
+  coef_labels  = label_map(rhs_b_high),
+  header_title = "Baseline Model — Annual Out-Migration Flow (High population)",
+  header_labels = mk_header_labels(models_high)
+)
+
+# ---------------- Low population (bottom 20%) ---------------
+df_tem_low  <- subset(df, !is.na(pop_des) & pop_des <= q_pop[1])
+rhs_b_low  <- intersect(rhs_base, names(df_tem_low))
+
+models_low <- fit_models_des(
+  df_tem_low, y, rhs_b_low,
+  fe = c("origin", "destination", "time"),
+  family = "ppml"
+)
+
+tab0PL_des <- ppml_flextable(
+  models_low,
+  coef_keep    = rhs_b_low,
+  coef_labels  = label_map(rhs_b_low),
+  header_title = "Baseline Model — Annual Out-Migration Flow (Low population)",
+  header_labels = mk_header_labels(models_low)
+)
+
+
+
+
+print_price_interaction_cov <- function(models,
+                                        beta_origin, gamma_origin,
+                                        beta_dest,   gamma_dest,
+                                        cluster = ~orig_dest_dyad) {
+  
+  cat("\n=================================================\n")
+  cat("Covariance extraction (PPML, dyad-clustered)\n")
+  cat("=================================================\n")
+  
+  for (mn in names(models)) {
+    m <- models[[mn]]
+    
+    cat("\n-----------------------------------------------\n")
+    cat("Model:", gsub("\n", " — ", mn), "\n")
+    
+    # Use S3 generics (fixest methods will dispatch)
+    V  <- stats::vcov(m, cluster = cluster)
+    cf <- stats::coef(m)
+    
+    extract_one <- function(beta, gamma, label) {
+      cat("\n", label, "\n", sep = "")
+      
+      if (!(beta %in% names(cf)) || !(gamma %in% names(cf))) {
+        cat("  Term(s) not estimated in this subsample\n")
+        return()
+      }
+      
+      cat("  beta  =", unname(cf[beta]), "\n")
+      cat("  se(b) =", sqrt(V[beta, beta]), "\n")
+      cat("  gamma =", unname(cf[gamma]), "\n")
+      cat("  se(g) =", sqrt(V[gamma, gamma]), "\n")
+      cat("  Cov(beta, gamma) =", V[beta, gamma], "\n")
+    }
+    
+    extract_one(beta_origin, gamma_origin, "Origin price interaction")
+    extract_one(beta_dest,   gamma_dest,   "Destination price interaction")
+  }
+}
+
+
+# =========================================================
+# PRICE interactions (use price_ave as the moderator)
+# =========================================================
+
+# --- P1: price_ave × Migrants' Income ---
+df_P1 <- within(df, {
+  priceXminc     <- price_ave     * med_inc_5yr_score
+  priceXminc_des <- price_ave_des * med_inc_5yr_score
+})
+rhs_P1 <- intersect(c(COMMON_CONTROLS, "price_ave","price_ave_des","med_inc_5yr_score",
+                      "priceXminc","priceXminc_des"), names(df_P1))
+modelsP1 <- fit_models_des(df_P1, y, rhs_P1, fe = c("origin","destination","time"), family = "ppml")
+tabP1 <- ppml_flextable(modelsP1, rhs_P1, label_map(rhs_P1),
+                        header_title  = "P1. Moderation: Price × Migrants' Income — Annual Out-Migration Flow",
+                        header_labels = mk_header_labels(modelsP1))
+
+print_price_interaction_cov(
+  models      = modelsP1,
+  beta_origin = "price_ave",
+  gamma_origin= "priceXminc",
+  beta_dest   = "price_ave_des",
+  gamma_dest  = "priceXminc_des"
+)
+
+
+# --- P4: price_ave × Risk Difference ---
+df_P4 <- within(df, {
+  priceXrisk_dif     <- price_ave     * risk_dif
+  priceXrisk_dif_des <- price_ave_des * risk_dif
+})
+rhs_P4 <- intersect(c(COMMON_CONTROLS, "price_ave","price_ave_des",
+                      "priceXrisk_dif","priceXrisk_dif_des", "risk_dif"), names(df_P4))
+modelsP4 <- fit_models_des(df_P4, y, rhs_P4, fe = c("origin","destination","time"), family = "ppml")
+tabP4 <- ppml_flextable(modelsP4, rhs_P4, label_map(rhs_P4),
+                        header_title  = "P4. Moderation: Price × Risk Difference — Annual Out-Migration Flow",
+                        header_labels = mk_header_labels(modelsP4))
+modelsP4
+# --- P5: price_ave × Migrants' Education ---
+df_P5 <- within(df, {
+  priceXmedu     <- price_ave     * med_edu_5yr_score
+  priceXmedu_des <- price_ave_des * med_edu_5yr_score
+})
+rhs_P5 <- intersect(c(COMMON_CONTROLS, "price_ave","price_ave_des","med_edu_5yr_score",
+                      "priceXmedu","priceXmedu_des"), names(df_P5))
+modelsP5 <- fit_models_des(df_P5, y, rhs_P5, fe = c("origin","destination","time"), family = "ppml")
+tabP5 <- ppml_flextable(modelsP5, rhs_P5, label_map(rhs_P5),
+                        header_title  = "P5. Moderation: Price × Migrants' Education — Annual Out-Migration Flow",
+                        header_labels = mk_header_labels(modelsP5))
+
+print_price_interaction_cov(
+  models      = modelsP5,
+  beta_origin = "price_ave",
+  gamma_origin= "priceXmedu",
+  beta_dest   = "price_ave_des",
+  gamma_dest  = "priceXmedu_des"
+)
+
+
+
+# --- P6: price_ave × Migrants' Employment ---
+df_P6 <- within(df, {
+  priceXmemp     <- price_ave     * med_emp_5yr_score
+  priceXmemp_des <- price_ave_des * med_emp_5yr_score
+})
+rhs_P6 <- intersect(c(COMMON_CONTROLS, "price_ave","price_ave_des","med_emp_5yr_score",
+                      "priceXmemp","priceXmemp_des"), names(df_P6))
+modelsP6 <- fit_models_des(df_P6, y, rhs_P6, fe = c("origin","destination","time"), family = "ppml")
+tabP6 <- ppml_flextable(modelsP6, rhs_P6, label_map(rhs_P6),
+                        header_title  = "P6. Moderation: Price × Migrants' Employment — Annual Out-Migration Flow",
+                        header_labels = mk_header_labels(modelsP6))
+
+
+print_price_interaction_cov(
+  models      = modelsP6,
+  beta_origin = "price_ave",
+  gamma_origin= "priceXmemp",
+  beta_dest   = "price_ave_des",
+  gamma_dest  = "priceXmemp_des"
+)
+
+# --- P9: price_ave × Distance ---
+df_P9 <- within(df, {
+  priceXdistance     <- price_ave     * distance
+  priceXdistance_des <- price_ave_des * distance
+})
+rhs_P9 <- intersect(c(COMMON_CONTROLS, "price_ave","price_ave_des","distance",
+                      "priceXdistance","priceXdistance_des"), names(df_P9))
+modelsP9 <- fit_models(df_P9, y, rhs_P9, fe = c("origin","destination","time"), family = "ppml")
+tabP9 <- ppml_flextable(modelsP9, rhs_P9, label_map(rhs_P9),
+                        header_title  = "P9. Moderation: Price × Distance — Annual Out-Migration Flow",
+                        header_labels = mk_header_labels(modelsP9))
+
+# --- P10: price_ave × Interstate ---
+df_P10 <- within(df, {
+  priceXinstate     <- price_ave     * interstate
+  priceXinstate_des <- price_ave_des * interstate
+})
+rhs_P10 <- intersect(c(COMMON_CONTROLS, "price_ave","price_ave_des","interstate",
+                       "priceXinstate","priceXinstate_des"), names(df_P10))
+modelsP10 <- fit_models(df_P10, y, rhs_P10, fe = c("origin","destination","time"), family = "ppml")
+tabP10 <- ppml_flextable(modelsP10, rhs_P10, label_map(rhs_P10),
+                         header_title  = "P10. Moderation: Price × Interstate — Annual Out-Migration Flow",
+                         header_labels = mk_header_labels(modelsP10))
+
+
+# ---------- Robustness 1: Time intervals change  ----------
+y <- "flow_1yrflows"
+
+rhs1 <- c(
+  "price","price_des",
+  "med_edu_5yr_score","med_inc_5yr_score","med_emp_5yr_score",
+  "pop","pop_des",
+  "distance","contiguity","interstate","bass_strait"
+)
+rhs1 <- intersect(rhs1, names(df))
+
+models1 <- fit_models_des(df, y, rhs1, fe = c("origin","destination","time"), family = "ppml")
+tab1 <- ppml_flextable(
+  models1, rhs1, label_map(rhs1),
+  header_title  = "Robustness 1 — Time Intervals Change (1-year panel)",
+  header_labels = mk_header_labels(models1)
+)
+
+# ---------- Robustness 2: Climate-related disaster impact ----------
+y <- "annual_flow"
+
+rhs2 <- c(
+  "price_ave","price_ave_des",
+  "dis_5_yr","dis_5_yr_des",
+  "med_edu_5yr_score","med_inc_5yr_score","med_emp_5yr_score",
+  "pop","pop_des",
+  "distance","contiguity","interstate","bass_strait"
+)
+rhs2 <- intersect(rhs2, names(df))
+
+models2 <- fit_models_des(df, y, rhs2, fe = c("origin","destination","time"), family = "ppml")
+tab2 <- ppml_flextable(
+  models2, rhs2, label_map(rhs2),
+  header_title  = "Robustness 2 — Climate-related Disaster Impact (5-year window)",
+  header_labels = mk_header_labels(models2)
+)
+
+# ---------- Robustness 3: Lagging explanatory variables / longer disaster window ----------
+rhs3 <- c(
+  "price_ave_5_yr","price_ave_5_yr_des",
+  "med_edu_5yr_score","med_inc_5yr_score","med_emp_5yr_score",
+  "pop","pop_des",
+  "distance","contiguity","interstate","bass_strait"
+)
+rhs3 <- intersect(rhs3, names(df))
+
+models3 <- fit_models_des(df, y, rhs3, fe = c("origin","destination","time"), family = "ppml")
+tab3 <- ppml_flextable(
+  models3, rhs3, label_map(rhs3),
+  header_title  = "Robustness 3 — Varying Disaster Time Window (10-year)",
+  header_labels = mk_header_labels(models3)
+)
+
+# ---------- Robustness 4: Varying measurement  ----------
+df_tmp <- within(df, {
+  # If these were stored as logs, back-transform to levels:
+  med_edu_5yr_score <- exp(med_edu_5yr_score)
+  med_emp_5yr_score <- exp(med_emp_5yr_score)
+  med_inc_5yr_score <- exp(med_inc_5yr_score)
+  price_ave         <- exp(price_ave)
+  price_ave_des     <- exp(price_ave_des)
+  # If disasters were log1p, uncomment the next two lines instead:
+  # dis_10_yr     <- exp(dis_10_yr)     - 1
+  # dis_10_yr_des <- exp(dis_10_yr_des) - 1
+})
+
+rhs4 <- c(
+  "price_ave","price_ave_des",
+  "med_edu_5yr_score","med_inc_5yr_score","med_emp_5yr_score",
+  "pop","pop_des",
+  "distance","contiguity","interstate","bass_strait"
+)
+rhs4 <- intersect(rhs4, names(df_tmp))
+
+models4 <- fit_models_des(df_tmp, y, rhs4, fe = c("origin","destination","time"), family = "ppml")
+labs4 <- label_map(rhs4)  # keep labels aligned to actually used vars
+
+tab4 <- ppml_flextable(
+  models4, rhs4, labs4,
+  header_title  = "Robustness 4 — Varying Measurement (back-transformed covariates)",
+  header_labels = mk_header_labels(models4)
+)
+
+# ---------- Robustness 5: Spatial spill-overs ----------
+rhs5 <- c(
+  "price_ave","price_ave_des",
+  "dis_5_yr","dis_5_yr_des",
+  "nei_dis_5_yr","nei_dis_5_yr_des",
+  "med_edu_5yr_score","med_inc_5yr_score","med_emp_5yr_score",
+  "pop","pop_des",
+  "distance","contiguity","interstate","bass_strait"
+)
+rhs5 <- intersect(rhs5, names(df))
+
+models5 <- fit_models_des(df, y, rhs5, fe = c("origin","destination","time"), family = "ppml")
+tab5 <- ppml_flextable(
+  models5, rhs5, label_map(rhs5),
+  header_title  = "Robustness 5 — Spatial Spill-Over Effects",
+  header_labels = mk_header_labels(models5)
+)
+
+# ---------- Robustness 6: Multilateral resistance (differences) ----------
+library(dplyr)
+df_tem <- df %>%
+  mutate(
+    d_price         = price_ave_des - price_ave,
+    d_dis_5yr       = dis_5_yr_des - dis_5_yr,
+    d_pop           = pop_des - pop
+  )
+
+rhs6 <- c(
+  "d_price",
+  "med_edu_5yr","med_emp_5yr","med_inc_5yr",
+  "d_pop",
+  "distance","contiguity","interstate","bass_strait"
+)
+rhs6 <- intersect(rhs6, names(df_tem))
+
+models6 <- fit_models_des(df_tem, y, rhs6, fe = c("origin","destination","time"), family = "ppml")
+tab6 <- ppml_flextable(
+  models6, rhs6, label_map(rhs6),
+  header_title  = "Robustness 6 — Multilateral Resistance (destination − origin)",
+  header_labels = mk_header_labels(models6)
+)
+
+# ---------- Robustness 7: Varying the fixed effects (drop time FE) ----------
+rhs7 <- c(
+  "price_ave","price_ave_des",
+  "med_edu_5yr_score","med_inc_5yr_score","med_emp_5yr_score",
+  "pop","pop_des",
+  "distance","contiguity","interstate","bass_strait"
+)
+rhs7 <- intersect(rhs7, names(df))
+
+models7 <- fit_models_des(df, y, rhs7, fe = c("origin","destination"), family = "ppml")
+tab7 <- ppml_flextable(
+  models7, rhs7, label_map(rhs7),
+  header_title  = "Robustness 7 — Varying Fixed Effects (Origin + Destination only)",
+  header_labels = mk_header_labels(models7)
+)
+
+# ---------- Robustness 8: Log-linear model (use feols/OLS) ----------
+df_log <- within(df, {
+  annual_flow <- log(annual_flow + 1)
+})
+# y remains "annual_flow"
+rhs8 <- c(
+  "price_ave","price_ave_des",
+  "med_edu_5yr_score","med_inc_5yr_score","med_emp_5yr_score",
+  "pop","pop_des",
+  "distance","contiguity","interstate","bass_strait"
+)
+rhs8 <- intersect(rhs8, names(df_log))
+
+models8 <- fit_models_des(df_log, y, rhs8, fe = c("origin","destination","time"), family = "ols")
+tab8 <- ppml_flextable(
+  models8, rhs8, label_map(rhs8),
+  header_title  = "Robustness 8 — Log-linear Model (DV = log(annual_flow + 1))",
+  header_labels = mk_header_labels(models8)
+)
+
+# ---------- Robustness 9: Varying measurement  ----------
+df_tmp <- within(df, {
+  aff_ave         <- price_ave/income_5_yr
+  aff_ave_des     <- price_ave_des/income_5_yr_des
+})
+
+rhs9 <- c(
+  "aff_ave","aff_ave_des",
+  "med_edu_5yr_score","med_inc_5yr_score","med_emp_5yr_score",
+  "pop","pop_des",
+  "distance","contiguity","interstate","bass_strait"
+)
+rhs9 <- intersect(rhs9, names(df_tmp))
+
+models9 <- fit_models_des(df_tmp, y, rhs9, fe = c("origin","destination","time"), family = "ppml")
+labs9 <- label_map(rhs4)  # keep labels aligned to actually used vars
+
+tab9 <- ppml_flextable(
+  models9, rhs9, labs9,
+  header_title  = "Robustness 9 — Varying Measurement (back-transformed covariates)",
+  header_labels = mk_header_labels(models4)
+)
+
+# ---------- Robustness 10: Climate-related disaster impact (10 year)----------
+y <- "annual_flow"
+
+rhs10 <- c(
+  "price_ave","price_ave_des",
+  "dis_10_yr","dis_10_yr_des",
+  "med_edu_5yr_score","med_inc_5yr_score","med_emp_5yr_score",
+  "pop","pop_des",
+  "distance","contiguity","interstate","bass_strait"
+)
+rhs10 <- intersect(rhs10, names(df))
+
+models10 <- fit_models_des(df, y, rhs10, fe = c("origin","destination","time"), family = "ppml")
+tab10 <- ppml_flextable(
+  models10, rhs10, label_map(rhs10),
+  header_title  = "Robustness 10 — Climate-related Disaster Impact (10-year window)",
+  header_labels = mk_header_labels(models10)
+)
+# =========================================================
+# Export tables (Baseline + P1–P10)
+# =========================================================
+export_ppml_tables(
+  tables = list(tab0a, tab0b, 
+                tab0Uorg, tab0Udes, tab0Rorg, tab0Rdes,
+                tab0AS, tab0IN,
+                tab0PH, tab0PL,tab0PH_des, tab0PL_des,
+                tabP1, tabP4, tabP5, tabP6, tabP9, tabP10,
+                tab1, tab2, tab3, tab4, tab5, tab6, tab7,tab8, tab9,tab10),
+  titles = c(
+    "Baseline Model",
+    "Baseline Model",
+    "Baseline Model (Urban Origin)",
+    "Baseline Model (Urban Destination)",
+    "Baseline Model (Rural Origin)",
+    "Baseline Model (Rural Destination)",
+    "Baseline Model (Across States States)",
+    "Baseline Model (Within States)",
+    "Baseline Model (High Population)",
+    "Baseline Model (Low Population)",
+    "Baseline Model (High Population des)",
+    "Baseline Model (Low Population des)",
+    "P1: Price × Migrants' Income",
+    "P4: Price × Risk Difference",
+    "P5: Price × Migrants' Education",
+    "P6: Price × Migrants' Employment",
+    "P9: Price × Distance",
+    "P10: Price × Interstate",
+    "1. Robustness: Time Intervals Change (1-year panel)",
+    "2. Robustness: Climate-related disaster impact",
+    "3. Robustness: 5-Year Lags",
+    "4. Robustness: Varying Measurement of Disaster Frequency",
+    "5. Robustness: Spatial Spill-Over Effects",
+    "6. Robustness: Multilateral Resistance in Estimation",
+    "7. Robustness: Varying Fixed Effects",
+    "8. Robustness: Log-linear Model",
+    "9. Robustness: Varying Measurement",
+    "10. Robustness: Climate-related Disaster Impact (10-year window)"
+  ),
+  path = "/Users/.../price_interactions_PPML_tables.docx"
+)
+
+
+
+min(df$raff_5_yr, na.rm = TRUE)
+max(df$raff_5_yr, na.rm = TRUE)
+
+min(df$raff_5_yr_des, na.rm = TRUE)
+max(df$raff_5_yr_des, na.rm = TRUE)
+
+min(df$unemp_5_yr, na.rm = TRUE)
+max(df$unemp_5_yr, na.rm = TRUE)
+
