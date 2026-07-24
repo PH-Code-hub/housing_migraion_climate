@@ -37,13 +37,13 @@ library(car)
 # 1) File paths and data
 # =========================================================
 input_path <- paste0(
-  "/Users/peyman/Desktop/Research/Studies/",
-  "04 - Migration Econometric/output/260724_final_data.csv"
+  "/Users/Path to file ... ",
+  "Path to file ... data.csv"
 )
 
 output_path <- paste0(
-  "/Users/peyman/Desktop/Research/Studies/",
-  "04 - Migration Econometric/output/260725_tables.docx"
+  "/Users/Path to save ... ",
+  "Path to save ... tables.docx"
 )
 
 df_raw <- read.csv(input_path, check.names = FALSE)
