@@ -1,6 +1,9 @@
 ######################################
 ##------- 24 July 2025 by Peyman ----------##
 ######################################
+
+10.5281/zenodo.21526163
+
 # housing_migraion_climate
 **Overview**
 This repository contains the R code used to estimate how housing prices, climate risk, migrant socioeconomic characteristics, and spatial frictions shape internal migration flows across Australian Local Government Areas (LGAs).
@@ -200,14 +203,11 @@ The code implements the following robustness analyses:
 When using or adapting this code, please cite the associated study and repository.
 Suggested repository citation format:
 
-Habibi-Moshfegh, P. Housing prices, climate risk, and internal migration in Australia: PPML estimation code. GitHub repository.
-
-The final publication citation and DOI should be added when available.
+Habibi-Moshfegh, P. Housing prices, climate risk, and internal migration in Australia: PPML estimation code. GitHub repository.10.5281/zenodo.21526163
 
 Author
 Peyman Habibi-Moshfegh
-Faculty of Engineering
-The University of Sydney
+
 
 **Disclaimer**
 This repository provides research code for academic and reproducibility purposes. Results depend on the construction, coverage, licensing conditions, and preprocessing of the underlying datasets. Users are responsible for verifying variable definitions, model assumptions, data permissions, and the suitability of the methods for their own applications.
